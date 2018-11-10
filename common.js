@@ -23,6 +23,7 @@ function parseCLIArgs (argv) {
     },
     string: [
       'electron-version',
+      'debug-electron',
       'out'
     ]
   })
@@ -38,6 +39,7 @@ function parseCLIArgs (argv) {
       return { schemes: [scheme], name: protocolNames[i] }
     })
   }
+
 
   if (args.out === '') {
     warning('Specifying --out= without a value is the same as the default value')

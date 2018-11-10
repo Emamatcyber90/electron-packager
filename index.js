@@ -12,6 +12,7 @@ const nodeify = require('nodeify')
 const path = require('path')
 const pify = require('pify')
 const targets = require('./targets')
+const ncp = require('ncp').ncp
 
 function debugHostInfo () {
   debug(common.hostInfo())
@@ -66,6 +67,11 @@ class Packager {
       .then(() => this.createApp(comboOpts, zipPath))
   }
 
+  copyDebugElectron (debugElectronDir, buildDir) {
+    debug(`Copying ${debugElectronDir} to ${buildDir}`)
+    return pify(ncp)(debugElectronDir, buildDir)
+  }
+
   extractElectronZip (comboOpts, zipPath, buildDir) {
     debug(`Extracting ${zipPath} to ${buildDir}`)
     return pify(extract)(zipPath, { dir: buildDir })
@@ -79,12 +85,22 @@ class Packager {
     } else {
       buildParentDir = this.opts.out || process.cwd()
     }
-    const buildDir = path.resolve(buildParentDir, `${comboOpts.platform}-${comboOpts.arch}-template`)
-    common.info(`Packaging app for platform ${comboOpts.platform} ${comboOpts.arch} using electron v${comboOpts.electronVersion}`, this.opts.quiet)
+    let buildDir
+    if(comboOpts.debugElectron)
+      buildDir = path.resolve(buildParentDir, 'debugElectron-template')
+    else {
+      buildDir = path.resolve(buildParentDir, `${comboOpts.platform}-${comboOpts.arch}-template`)
+      common.info(`Packaging app for platform ${comboOpts.platform} ${comboOpts.arch} using electron v${comboOpts.electronVersion}`, this.opts.quiet)
+    }
 
     debug(`Creating ${buildDir}`)
     return fs.ensureDir(buildDir)
-      .then(() => this.extractElectronZip(comboOpts, zipPath, buildDir))
+      .then(() => {
+        if(!comboOpts.debugElectron)
+          this.extractElectronZip(comboOpts, zipPath, buildDir)
+        else
+          this.copyDebugElectron(comboOpts.debugElectron, buildDir)
+      })
       .then(() => {
         const os = require(targets.osModules[comboOpts.platform])
         const app = new os.App(comboOpts, buildDir)
@@ -137,12 +153,19 @@ class Packager {
   }
 }
 
-function packageAllSpecifiedCombos (opts, archs, platforms) {
+function packageAllSpecifiedCombos(opts, archs, platforms) {
   const packager = new Packager(opts)
   return packager.ensureTempDir()
-    .then(() => Promise.all(download.createDownloadCombos(opts, platforms, archs).map(
-      downloadOpts => packager.packageForPlatformAndArch(downloadOpts)
-    )))
+    .then(() => {
+      opts.debugElectron = path.resolve(opts.debugElectron)
+      debug(`Using debug electron build files located at ${opts.debugElectron}`)
+      if (opts.debugElectron) {
+        return packager.checkOverwrite(opts)
+      } else {
+        Promise.all(download.createDownloadCombos(opts, platforms, archs).map(
+          downloadOpts => packager.packageForPlatformAndArch(downloadOpts)))
+      }
+    })
 }
 
 function packagerPromise (opts) {
